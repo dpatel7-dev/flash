@@ -268,8 +268,21 @@ function nudgeText(now = Date.now()) {
   return { title: `${n} card${n === 1 ? '' : 's'} to study`, text: `${st.streak > 1 && !st.today ? `Keep your ${st.streak}-day streak going.` : st.today ? 'A few more for today.' : 'A few minutes is enough.'}${test}` };
 }
 
+/** flash in Spotlight and Launchpad: a little app in ~/Applications that opens the window (no administrator needed). */
+function spotlightApp() {
+  if (!MAC || process.env.FLASH_NO_APP) return;
+  try {
+    const Mac = require('./macos')({ app: 'flash', label: 'dev.dpatel7.flash', home: Deck.home });
+    const plist = path.join(Mac.appsDir(), 'flash.app', 'Contents', 'Info.plist');
+    let same = false;
+    try { same = fs.readFileSync(plist, 'utf8').includes(`<key>CFBundleShortVersionString</key><string>${pkg.version}</string>`); } catch { /* not made yet */ }
+    if (!same) Mac.makeApp({ name: 'flash', id: 'dev.dpatel7.flash.app', args: ['app'], icon: path.join(__dirname, '..', 'assets', 'flash.icns'), script: SCRIPT, version: pkg.version });
+  } catch { /* only a shortcut: never stop the command for it */ }
+}
+
 async function main(argv) {
   const [cmd, ...rest] = argv;
+  if (!['uninstall', 'help', '--help', '-h', '--version', '-v', 'version', 'nudge', 'sample'].includes(cmd)) spotlightApp();
   switch (cmd) {
     case undefined: case 'list': case 'decks': {
       const decks = Deck.all();
@@ -526,6 +539,7 @@ function update() {
   if (r.status !== 0) throw new Error('The update did not finish. Your current version still works.');
 }
 async function uninstall() {
+  if (MAC) require('./macos')({ app: 'flash', label: 'dev.dpatel7.flash', home: Deck.home }).removeApp('flash');
   const root = Deck.home();
   if (MAC) Mac().stopAgent();
   let launcher = '';
