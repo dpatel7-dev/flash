@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>flash</title>
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="flash.css">
+</head>
+<body>
+<canvas id="scene" aria-hidden="true"></canvas>
+
+<main class="glass shell">
+  <aside class="side">
+    <header class="brand"><canvas id="blink" width="12" height="9" aria-hidden="true"></canvas><h1>flash</h1></header>
+    <p class="streak" id="streak"></p>
+    <nav class="decks" id="decks" aria-label="Your decks"></nav>
+    <button class="btn" id="newBtn">New deck</button>
+    <div class="side-foot"><button class="link" id="statsBtn">How it's going</button><span class="sp"></span><button class="link" id="setBtn">Settings</button></div>
+  </aside>
+
+  <section class="main">
+    <!-- no decks yet -->
+    <div id="vEmpty" hidden>
+      <h2>Make your first deck</h2>
+      <p class="empty">Cards come back just before you'd forget them, so a few minutes a day is enough. Type or paste some cards, bring in a file (a Quizlet export works), or let AI make them from your notes.</p>
+      <button class="btn main big" id="emptyNew">New deck</button>
+    </div>
+
+    <!-- a deck -->
+    <div id="vDeck" hidden>
+      <div class="dhead"><h2 id="dTitle" title="Click to rename"></h2><span class="when" id="dWhen"></span></div>
+      <p class="sum" id="dSum"></p>
+      <div class="mix" id="dMix" role="img"></div>
+      <div class="key"><span style="--c:var(--good)">Known well</span><span style="--c:var(--lake)">Coming back</span><span style="--c:var(--hard)">Learning</span><span style="--c:var(--faint)">Not seen yet</span></div>
+      <div class="go">
+        <button class="btn main big" id="goBtn">Study</button>
+        <span class="seg" id="modeSeg" role="group" aria-label="How to study">
+          <button data-m="flip" aria-pressed="true">Flip</button><button data-m="quiz" aria-pressed="false">Choose</button><button data-m="type" aria-pressed="false">Type</button><button data-m="match" aria-pressed="false">Match</button>
+        </span>
+        <label title="Show the back, answer with the front"><input type="checkbox" id="revChk"> Backwards</label>
+      </div>
+      <div class="tools">
+        <button class="btn" id="addBtn">Add cards</button>
+        <button class="btn" id="aiBtn">Make more with AI</button>
+        <button class="btn" id="examBtn">Test date</button>
+        <button class="btn" id="shareBtn">Share</button>
+        <button class="btn" id="exportBtn">Export</button>
+        <button class="btn quiet danger" id="delBtn">Delete deck</button>
+      </div>
+      <h3>Cards <span class="sp"></span><input type="search" id="find" placeholder="Find a card" aria-label="Find a card" style="width:200px;font-weight:400"></h3>
+      <ul class="cardlist" id="cardList"></ul>
+    </div>
+
+    <!-- studying -->
+    <div id="vStudy" hidden>
+      <div class="stbar"><button class="link" id="stBack"></button><div class="prog"><i id="prog"></i></div><span class="small muted" id="stLeft"></span></div>
+      <div id="stCard">
+        <div class="stage"><div class="card" id="card">
+          <div class="face front"><span class="tag" id="fTag"></span><div class="txt" id="fTxt"></div><div class="hint" id="fHint"></div></div>
+          <div class="face back"><div class="q" id="bQ"></div><div class="txt" id="bTxt"></div><div class="hook" id="bHook" hidden></div></div>
+        </div></div>
+        <div class="answer" id="aFlip">
+          <button class="btn big reveal" id="showBtn">Show the answer</button>
+          <div class="grades" id="grades" hidden>
+            <button class="grade again" data-g="1"><b>Again</b><small></small><kbd>1</kbd></button>
+            <button class="grade hard" data-g="2"><b>Hard</b><small></small><kbd>2</kbd></button>
+            <button class="grade good" data-g="3"><b>Good</b><small></small><kbd>3</kbd></button>
+            <button class="grade easy" data-g="4"><b>Easy</b><small></small><kbd>4</kbd></button>
+          </div>
+        </div>
+        <div class="answer" id="aQuiz" hidden><div class="opts" id="opts"></div></div>
+        <div class="answer" id="aType" hidden>
+          <form class="typerow" id="typeForm"><input type="text" id="typed" autocomplete="off" spellcheck="false" placeholder="Type the answer" aria-label="Your answer"><button class="btn main" id="checkBtn">Check</button></form>
+          <p class="verdict" id="verdict" hidden></p>
+        </div>
+        <div class="cardtools"><button class="link" id="editCur">Edit this card</button><button class="link" id="explainCur">Explain it</button><button class="link" id="hookCur">Make a memory hook</button></div>
+        <p class="keys" id="keys"></p>
+      </div>
+      <div id="stMatch" hidden>
+        <div class="mhead"><span class="clock" id="clock">0.0</span><span class="muted small" id="best"></span><span class="sp"></span><button class="btn" id="againMatch">New round</button></div>
+        <div class="tiles" id="tiles"></div>
+      </div>
+      <div class="finish" id="stDone" hidden></div>
+    </div>
+
+    <!-- a new deck -->
+    <div id="vNew" hidden>
+      <h2 id="nHead">New deck</h2>
+      <div class="field" style="margin-top:14px;max-width:420px" id="nTitleField"><span>Name</span><input type="text" id="nTitle" placeholder="Like: Biology unit 3" maxlength="80"></div>
+      <span class="seg tabs" id="nTabs" role="group" aria-label="How to add cards"><button data-t="paste" aria-pressed="true">Type or paste</button><button data-t="file" aria-pressed="false">From a file</button><button data-t="ai" aria-pressed="false">Make with AI</button></span>
+      <div id="tPaste">
+        <div class="paste">
+          <div><textarea id="nText" spellcheck="false" placeholder="One card a line, the two sides apart with a dash, a colon or a Tab:&#10;&#10;photosynthesis - how plants make food from light&#10;mitosis: a cell dividing into two identical cells&#10;&#10;or fill-in-the-blank:&#10;The {{mitochondria}} makes energy for the cell."></textarea>
+          <p class="small muted">Copied from Quizlet, a Google Doc or a spreadsheet? Paste it as it is.</p></div>
+          <div class="preview" id="nPreview"><p class="muted small" style="margin:0">The cards show up here as you type.</p></div>
+        </div>
+        <div class="row" style="margin-top:12px"><button class="btn main" id="nMake">Make the deck</button><span class="small muted" id="nCount"></span></div>
+      </div>
+      <div id="tFile" hidden>
+        <label class="drop" id="drop"><input type="file" id="file" accept=".txt,.tsv,.csv,.flash,.md,.pdf,.docx,.doc,.rtf" hidden>
+          <b>Drop a file here</b>, or click to pick one.<br><span class="small">A Quizlet or Anki export, a .csv, a .flash file from a friend, or any text with one card a line. A PDF or Word document of notes goes to AI to make cards from.</span></label>
+        <p class="small muted" id="totRow" hidden style="margin-top:14px">You have decks in Tree of Thought's cram. <button class="link" id="totBtn" style="color:var(--lake)">Bring them in</button> (with how well you knew each card).</p>
+      </div>
+      <div id="tAi" hidden>
+        <div class="aibox" id="aiSetup" hidden>
+          <b>Making cards with AI needs a free key, once.</b> It's shared with the rest of the family (Tree of Thought, den, scout…), so if you set one up there, it's already here.
+          <ol><li>Open <a href="https://console.groq.com/keys" target="_blank" rel="noopener">console.groq.com/keys</a> on any device.</li><li>Sign in with Google, click <b>Create API Key</b>, then Copy.</li><li>Paste it here.</li></ol>
+          <form class="row" id="keyForm"><input type="password" id="keyIn" placeholder="gsk_…" style="flex:1;min-width:220px" autocomplete="off"><button class="btn main">Save the key</button></form>
+        </div>
+        <div class="field"><span>Your notes, or a topic</span><textarea id="aiSrc" style="min-height:220px" placeholder="Paste your notes here (or drop a PDF or Word file in From a file), or just type a topic, like: the causes of World War I"></textarea></div>
+        <div class="row"><select id="aiCount" aria-label="How many cards"><option value="10">10 cards</option><option value="20" selected>20 cards</option><option value="30">30 cards</option><option value="40">40 cards</option></select><button class="btn main" id="aiGo">Make the cards</button><span class="small muted" id="aiNote"></span></div>
+        <p class="small muted">AI can get things wrong. Read the cards over before you study them; click one to fix it.</p>
+      </div>
+    </div>
+
+    <!-- how it's going -->
+    <div id="vStats" hidden>
+      <h2>How it's going</h2>
+      <p class="lede" id="sBig"></p>
+      <p class="muted" id="sSmall"></p>
+      <h3>The last 17 weeks</h3>
+      <div class="heat" id="heat" role="img" aria-label="Cards studied each day"></div>
+      <h3>Each deck</h3>
+      <div class="bars" id="sDecks"></div>
+    </div>
+  </section>
+</main>
+
+<dialog id="sheet"><form class="glass" method="dialog" id="sheetForm">
+  <h3 id="shTitle"></h3>
+  <div id="shBody"></div>
+  <div class="acts" id="shActs"></div>
+</form></dialog>
+
+<div class="toast" id="toast" role="status" hidden></div>
+
+<script id="config" type="application/json">__CONFIG__</script>
+<script src="scene.js"></script>
+<script src="shore.js"></script>
+<script src="flash.js"></script>
+</body>
+</html>
