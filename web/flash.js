@@ -82,7 +82,7 @@
   // ── a deck ──
   function openDeck(id) {
     S.deckId = id;
-    return api('deck', { id: id }).then(function (r) { S.deck = r.deck; S.cards = r.cards; S.plan = r.plan; renderDeck(); show('vDeck'); }).catch(function (e) { fail(e); refresh(); });
+    return api('deck', { id: id }).then(function (r) { S.deck = r.deck; S.cards = r.cards; S.plan = r.plan; S.tests = r.tests || []; S.learn = r.learn; renderDeck(); show('vDeck'); }).catch(function (e) { fail(e); refresh(); });
   }
   function status(c) {
     if (c.leech) return ['leech', 'keeps slipping'];
@@ -108,6 +108,8 @@
       if (d.leeches) bits.push(plural(d.leeches, 'card') + ' keep' + (d.leeches === 1 ? 's' : '') + ' slipping: a memory hook helps (click one below).');
     }
     if (S.plan) bits.push(S.plan.say);
+    if (S.tests && S.tests.length) bits.push('Last practice test: ' + S.tests[0].percent + '%' + (S.tests.length > 1 ? ' (before that ' + S.tests[1].percent + '%)' : '') + '.');
+    if (S.learn && S.learn.learned && S.learn.learned < S.learn.total) bits.push('Learn mode: ' + S.learn.learned + ' of ' + S.learn.total + ' learned.');
     $('dSum').textContent = bits.join(' ');
     var n = Math.max(1, d.total), review = d.total - d.fresh - d.learning - d.known;
     $('dMix').innerHTML = d.total ? '<i class="k" style="width:' + (d.known / n * 100) + '%"></i><i class="r" style="width:' + (review / n * 100) + '%"></i><i class="l" style="width:' + (d.learning / n * 100) + '%"></i><i class="w" style="width:' + (d.fresh / n * 100) + '%"></i>' : '';
@@ -118,8 +120,10 @@
   function goLabel() {
     var d = S.deck;
     var b = $('goBtn');
+    var L = S.learn || { learned: 0, total: d.total };
     b.disabled = !d.total || (S.mode === 'match' && d.total < 3);
-    b.textContent = S.mode === 'match' ? 'Play' : d.todo ? 'Study ' + plural(d.todo, 'card') : 'Go through them all';
+    b.textContent = S.mode === 'match' ? 'Play' : S.mode === 'test' ? 'Make a practice test' : S.mode === 'learn' ? (L.learned >= L.total && L.total ? 'Learn them again' : L.learned || (L.learning) ? 'Keep learning (' + L.learned + ' of ' + L.total + ')' : 'Start learning') : d.todo ? 'Study ' + plural(d.todo, 'card') : 'Go through them all';
+    $('revChk').parentNode.hidden = S.mode === 'match' || S.mode === 'test' || S.mode === 'learn';
   }
   function renderCards() {
     var q = S.find.trim().toLowerCase();
@@ -155,7 +159,7 @@
     }).catch(fail);
   }
   function reloadDeck() {
-    return api('deck', { id: S.deckId }).then(function (r) { S.deck = r.deck; S.cards = r.cards; S.plan = r.plan; if (S.view === 'vDeck') renderDeck(); return refresh(); });
+    return api('deck', { id: S.deckId }).then(function (r) { S.deck = r.deck; S.cards = r.cards; S.plan = r.plan; S.tests = r.tests || []; S.learn = r.learn; if (S.view === 'vDeck') renderDeck(); return refresh(); });
   }
 
   $('dTitle').addEventListener('click', function () {
@@ -209,20 +213,28 @@
   $('aiBtn').addEventListener('click', function () { openNew(S.deckId, 'ai'); });
 
   // ── studying ──
-  $('goBtn').addEventListener('click', function () { if (S.mode === 'match') startMatch(); else startStudy(!S.deck.todo); });
+  $('goBtn').addEventListener('click', function () {
+    if (S.mode === 'match') startMatch();
+    else if (S.mode === 'learn') startLearn(S.learn && S.learn.total && S.learn.learned >= S.learn.total);
+    else if (S.mode === 'test') testSetup();
+    else startStudy(!S.deck.todo);
+  });
+  function studyPart(which) { ['stCard', 'stMatch', 'stDone', 'stLearn', 'stTest'].forEach(function (id) { $(id).hidden = id !== which; }); }
   function startStudy(all) {
     return api('queue', { id: S.deckId, all: !!all, mode: S.mode, reverse: S.reverse }).then(function (r) {
       ST = { q: r.cards, done: 0, total: r.cards.length, tally: { 1: 0, 2: 0, 3: 0, 4: 0 }, t0: Date.now(), mode: S.mode, reverse: S.reverse, all: !!all, cur: null };
       $('stBack').textContent = '‹ ' + S.deck.title;
       show('vStudy');
-      $('stMatch').hidden = true;
+      studyPart('stCard');
       if (!ST.q.length) return finish();
-      $('stCard').hidden = false; $('stDone').hidden = true;
       nextCard();
     }).catch(fail);
   }
-  function stopStudy() { ST = null; stopMatch(); }
-  $('stBack').addEventListener('click', function () { var had = ST && ST.done; stopStudy(); openDeck(S.deckId); if (had) refresh(); });
+  function stopStudy() { ST = null; LS = null; TS = null; stopMatch(); }
+  $('stBack').addEventListener('click', function () {
+    if (TS && !TS.result && TS.answered() && !confirm('Leave the test? Your answers will be lost.')) return;
+    stopStudy(); openDeck(S.deckId); refresh();
+  });
 
   function face(c, side) { return ST.reverse ? (side === 'q' ? c.back : c.front) : (side === 'q' ? c.front : c.back); }
   function nextCard(skip) {
@@ -338,7 +350,7 @@
   });
 
   function finish() {
-    $('stCard').hidden = true; $('stMatch').hidden = true; $('stDone').hidden = false;
+    studyPart('stDone');
     var t = ST.tally, mins = Math.max(1, Math.round((Date.now() - ST.t0) / 60000));
     var knew = t[3] + t[4];
     refresh().then(function (st) {
@@ -355,6 +367,245 @@
     });
   }
 
+
+  // ── Learn mode: rounds until you know every card ──
+  var LS = null;
+  var LEVEL = ['New', 'Getting there', 'Almost learned'];
+  function learnPrefs() { try { return JSON.parse(localStorage.getItem('flash.learn') || '{}'); } catch (e) { return {}; } }
+  function learnMix(c) {
+    var n = Math.max(1, c.total);
+    $('lMix').innerHTML = '<i class="k" style="width:' + (c.learned / n * 100) + '%"></i><i class="l" style="width:' + (c.learning / n * 100) + '%"></i><i class="w" style="width:' + (c.fresh / n * 100) + '%"></i>';
+    $('lMix').setAttribute('aria-label', c.learned + ' learned, ' + c.learning + ' learning, ' + c.fresh + ' not studied yet');
+    $('lTxt').textContent = c.learned + ' of ' + c.total + ' learned';
+    S.learn = c;
+  }
+  function startLearn(reset) {
+    var p = learnPrefs();
+    return api('learn', { id: S.deckId, reset: !!reset, answerWith: p.answerWith || 'back', formats: p.formats || 'both' }).then(function (r) {
+      ST = null; TS = null;
+      LS = { round: r.round, i: 0, firstTry: 0, asked: 0, n: r.round.length, roundNo: (LS && LS.roundNo || 0) + 1, missedNow: {} };
+      $('stBack').textContent = '‹ ' + S.deck.title;
+      show('vStudy'); studyPart('stLearn');
+      $('prog').style.width = '0%'; $('stLeft').textContent = 'Learn';
+      learnMix(r.counts);
+      if (!r.round.length) return learnAllDone();
+      $('lAsk').hidden = false; $('lDone').hidden = true;
+      learnShow();
+    }).catch(fail);
+  }
+  function learnShow() {
+    var q = LS.round[LS.i];
+    LS.answered = false; LS.shown = Date.now();
+    $('lTag').textContent = LEVEL[q.level] || '';
+    $('lQ').textContent = q.prompt;
+    $('lHint').textContent = q.hint || '';
+    $('lFb').hidden = true;
+    $('lMC').hidden = q.type !== 'mc'; $('lW').hidden = q.type !== 'written';
+    if (q.type === 'mc') {
+      $('lOpts').innerHTML = q.options.map(function (o, i) { return '<button class="opt" data-i="' + i + '"><kbd>' + (i + 1) + '</kbd><span>' + esc(o) + '</span></button>'; }).join('');
+      $('lKeys').textContent = '1 2 3 4 to choose';
+    } else {
+      $('lIn').value = ''; $('lIn').disabled = false; $('lGo').disabled = false;
+      setTimeout(function () { $('lIn').focus(); }, 30);
+      $('lKeys').textContent = 'Enter checks';
+    }
+    $('prog').style.width = Math.round((LS.i / Math.max(1, LS.round.length)) * 100) + '%';
+    $('stLeft').textContent = 'Round ' + LS.roundNo + ': ' + (LS.round.length - LS.i) + ' to go';
+  }
+  function learnAnswer(right, shownAnswer, note) {
+    if (!LS || LS.answered) return;
+    LS.answered = true;
+    var q = LS.round[LS.i];
+    LS.asked++;
+    if (right && !LS.missedNow[q.card]) LS.firstTry++;
+    if (!right) LS.missedNow[q.card] = true;
+    api('learn-answer', { id: S.deckId, card: q.card, right: right, type: q.type, ms: Date.now() - LS.shown }).then(function (r) { learnMix(r.counts); q.newLevel = r.level; }).catch(fail);
+    $('lIn').disabled = true; $('lGo').disabled = true;
+    var fb = $('lFb');
+    fb.hidden = false;
+    fb.className = 'answer lfb ' + (right ? 'right' : 'wrong');
+    if (right) {
+      fb.innerHTML = '<h4>' + (note ? 'Right (' + esc(note) + ')' : ['Right!', 'Yes!', 'That\'s it.', 'Nice.'][LS.asked % 4]) + '</h4>' + (note ? '<p class="want">' + esc(q.answer) + '</p>' : '');
+      $('lKeys').textContent = '';
+      setTimeout(learnNext, note ? 1400 : 800);
+    } else {
+      // ask it again at the end of this round, as a choice of four
+      LS.round.push(Object.assign({}, q, { level: 0, type: q.options ? 'mc' : q.type, again: true }));
+      fb.innerHTML = '<h4>' + (shownAnswer === null ? 'Here\'s the answer' : 'Not quite') + '</h4><p class="want">' + esc(q.answer) + '</p><div class="row"><button class="btn main" id="lNext">Continue</button>' + (shownAnswer ? '<button class="btn quiet" id="lOverride">I was right</button>' : '') + '</div>';
+      $('lKeys').textContent = 'Enter: continue';
+      $('lNext').onclick = learnNext;
+      var o = $('lOverride'); if (o) o.onclick = function () { LS.round.pop(); delete LS.missedNow[q.card]; api('learn-answer', { id: S.deckId, card: q.card, right: true, type: q.type }).then(function (r) { learnMix(r.counts); }); learnNext(); };
+      $('lNext').focus();
+    }
+  }
+  function learnNext() {
+    if (!LS) return;
+    LS.i++;
+    if (LS.i < LS.round.length) return learnShow();
+    // the round is over
+    $('lAsk').hidden = true; $('lDone').hidden = false;
+    $('prog').style.width = '100%';
+    var c = S.learn;
+    var all = c.learned >= c.total;
+    if (all) return learnAllDone();
+    $('lDone').innerHTML = '<h2>Round ' + LS.roundNo + ' done</h2><p>' + LS.firstTry + ' of ' + LS.n + ' right the first time. You\'ve learned ' + c.learned + ' of ' + c.total + '.</p>' +
+      '<button class="btn main big" id="lMore">Next round</button> <button class="btn big quiet" id="lBack">Back to the deck</button>';
+    $('lMore').onclick = function () { startLearn(false); };
+    $('lBack').onclick = function () { stopStudy(); openDeck(S.deckId); };
+    $('lMore').focus();
+  }
+  function learnAllDone() {
+    $('lAsk').hidden = true; $('lDone').hidden = false;
+    $('lDone').innerHTML = '<h2>You\'ve learned every card.</h2><p>Now see if it sticks: a practice test, or let the cards come back over the next days with Flip.</p>' +
+      '<button class="btn main big" id="lTest">Take a practice test</button> <button class="btn big quiet" id="lAgain">Learn them again</button>';
+    $('lTest').onclick = function () { setMode('test'); testSetup(); };
+    $('lAgain').onclick = function () { LS = null; startLearn(true); };
+  }
+  $('lOpts').addEventListener('click', function (e) {
+    var b = e.target.closest('.opt'); if (!b || !LS || LS.answered) return;
+    var q = LS.round[LS.i], i = +b.dataset.i;
+    Array.prototype.forEach.call($('lOpts').children, function (x, k) { if (k === q.key) x.classList.add('right'); else if (k === i) x.classList.add('wrong'); });
+    learnAnswer(i === q.key, '');
+  });
+  $('lForm').addEventListener('submit', function (e) {
+    e.preventDefault();
+    if (!LS) return;
+    if (LS.answered) return learnNext();
+    var typed = $('lIn').value, q = LS.round[LS.i];
+    if (!typed.trim()) { $('lIn').focus(); return; }
+    api('check', { id: S.deckId, card: q.card, typed: typed, reverse: q.side === 'front' }).then(function (r) {
+      learnAnswer(r.verdict !== 'wrong', typed, r.verdict === 'close' ? r.note : '');
+    }).catch(fail);
+  });
+  $('lDunno').addEventListener('click', function () { if (LS && !LS.answered) learnAnswer(false, null); });
+  $('lSet').addEventListener('click', function () {
+    var p = learnPrefs();
+    sheet({
+      title: 'Learn settings',
+      html: '<label class="field"><span>Answer with</span><select data-k="answerWith"><option value="back"' + (p.answerWith !== 'front' && p.answerWith !== 'both' ? ' selected' : '') + '>The back of the card</option><option value="front"' + (p.answerWith === 'front' ? ' selected' : '') + '>The front of the card</option><option value="both"' + (p.answerWith === 'both' ? ' selected' : '') + '>Both, mixed</option></select></label>' +
+        '<label class="field"><span>Questions</span><select data-k="formats"><option value="both"' + (!p.formats || p.formats === 'both' ? ' selected' : '') + '>Pick one of four, then type it</option><option value="mc"' + (p.formats === 'mc' ? ' selected' : '') + '>Only pick one of four</option><option value="written"' + (p.formats === 'written' ? ' selected' : '') + '>Only type it</option></select></label>',
+      actions: [{ label: 'Start over', value: 'reset', left: true, danger: true }, { label: 'Cancel', value: '' }, { label: 'Save', value: 'ok', main: true }],
+    }).then(function (r) {
+      if (r.v === 'ok' || r.v === 'reset') { try { localStorage.setItem('flash.learn', JSON.stringify({ answerWith: r.vals.answerWith, formats: r.vals.formats })); } catch (e) {} }
+      if (r.v === 'ok') startLearn(false);
+      if (r.v === 'reset') { LS = null; startLearn(true); }
+    });
+  });
+
+  // ── practice test: a real-looking test, marked at the end ──
+  var TS = null;
+  function setMode(m) { S.mode = m; Array.prototype.forEach.call($('modeSeg').children, function (x) { x.setAttribute('aria-pressed', String(x.dataset.m === m)); }); goLabel(); }
+  function testSetup() {
+    var last = S.tests && S.tests[0];
+    var n = S.deck.total;
+    var counts = [5, 10, 20, 30, 50].filter(function (x) { return x < n; });
+    sheet({
+      title: 'A practice test',
+      html: '<p>Questions like a real test, all on one page. You see your mark when you hand it in.</p>' +
+        '<label class="field"><span>How many questions</span><select data-k="count">' + counts.map(function (x) { return '<option value="' + x + '"' + (x === 20 || (x === counts[counts.length - 1] && n <= 20) ? ' selected' : '') + '>' + x + '</option>'; }).join('') + '<option value="all"' + (n <= 20 ? ' selected' : '') + '>All ' + n + '</option></select></label>' +
+        '<div class="field"><span>Kinds of question</span>' +
+        '<label class="row"><input type="checkbox" data-k="mc" checked> Multiple choice</label>' +
+        '<label class="row"><input type="checkbox" data-k="tf" checked> True or false</label>' +
+        '<label class="row"><input type="checkbox" data-k="written" checked> Written</label>' +
+        '<label class="row"><input type="checkbox" data-k="match"' + (n >= 4 ? ' checked' : ' disabled') + '> Matching</label></div>' +
+        '<label class="field"><span>Answer with</span><select data-k="answerWith"><option value="back">The back of the card</option><option value="front">The front of the card</option><option value="both">Both, mixed</option></select></label>' +
+        (last && last.missed ? '<label class="row"><input type="checkbox" data-k="missed"> Only the ' + plural(last.missed, 'card') + ' I got wrong last time</label>' : ''),
+      actions: [{ label: 'Cancel', value: '' }, { label: 'Start the test', value: 'go', main: true }],
+    }).then(function (r) {
+      if (r.v !== 'go') return;
+      var types = ['mc', 'tf', 'written', 'match'].filter(function (t) { return r.vals[t]; });
+      if (!types.length) { toast('Pick at least one kind of question.'); return; }
+      startTest({ count: r.vals.count, types: types, answerWith: r.vals.answerWith, only: r.vals.missed ? 'missed' : null });
+    });
+  }
+  function startTest(opts) {
+    return api('test-make', Object.assign({ id: S.deckId }, opts)).then(function (r) {
+      ST = null; LS = null;
+      TS = { id: r.testId, test: r.test, answers: {}, t0: Date.now(), opts: opts, result: null };
+      TS.answered = function () { return Object.keys(TS.answers).length; };
+      $('stBack').textContent = '‹ ' + S.deck.title;
+      show('vStudy'); studyPart('stTest');
+      $('prog').style.width = '0%'; $('stLeft').textContent = plural(r.test.length, 'question');
+      renderTest();
+      window.scrollTo(0, 0);
+    }).catch(fail);
+  }
+  var SECTION = { mc: 'Multiple choice', tf: 'True or false', written: 'Written: type the answer', match: 'Matching: pick the letter that goes with each' };
+  function renderTest() {
+    var res = TS.result, h = '', sec = '';
+    if (res) h += '<div class="score"><b>' + res.percent + '%</b><span>' + res.score + ' out of ' + res.total + (res.percent >= 90 ? '. Excellent.' : res.percent >= 70 ? '. Good work.' : '. Keep going: Learn mode helps with the ones you missed.') + '</span></div>';
+    TS.test.forEach(function (q) {
+      if (q.type !== sec) { sec = q.type; h += '<h4>' + SECTION[q.type] + '</h4>'; }
+      var r = res && res.results.find(function (x) { return x.n === q.n; });
+      var a = TS.answers[q.n];
+      var cls = r ? (r.right ? ' right' : ' wrong') : '';
+      h += '<div class="q' + cls + '" data-n="' + q.n + '"><span class="num">' + q.n + '.</span>';
+      if (q.type === 'match') {
+        h += '<div class="p">Match each one to its letter.</div><div class="body">' + q.items.map(function (it) {
+          var m = r && r.marks.find(function (x) { return x.card === it.card; });
+          return '<label class="mrow"><span>' + esc(it.prompt) + (m && !m.right ? ' <span class="small" style="color:var(--again)">(it\'s ' + m.want + ')</span>' : '') + '</span><select data-match="' + it.card + '"' + (res ? ' disabled' : '') + '><option value="">–</option>' + q.options.map(function (o) { return '<option' + (a && a[it.card] === o.letter ? ' selected' : '') + '>' + o.letter + '</option>'; }).join('') + '</select></label>';
+        }).join('') + '<div class="mlist">' + q.options.map(function (o) { return '<span><b>' + o.letter + '</b>' + esc(o.text) + '</span>'; }).join('') + '</div></div>';
+      } else {
+        h += '<div class="p">' + esc(q.prompt) + '</div><div class="body">';
+        if (q.type === 'mc') h += q.options.map(function (o, i) { var mk = r ? (o === r.want ? ' right' : a === i ? ' wrong' : '') : ''; return '<button class="ch' + mk + '" data-v="' + i + '" aria-pressed="' + (a === i) + '"' + (res ? ' disabled' : '') + '><kbd>' + String.fromCharCode(65 + i) + '</kbd><span>' + esc(o) + '</span></button>'; }).join('');
+        else if (q.type === 'tf') h += '<div class="shown">' + esc(q.shown) + '</div><div class="tf"><button class="ch" data-v="true" aria-pressed="' + (a === true) + '"' + (res ? ' disabled' : '') + '>True</button><button class="ch" data-v="false" aria-pressed="' + (a === false) + '"' + (res ? ' disabled' : '') + '>False</button></div>';
+        else h += '<input type="text" data-w="' + q.n + '" value="' + esc(a || '') + '" autocomplete="off" spellcheck="false" placeholder="Your answer"' + (res ? ' disabled' : '') + '>';
+        h += '</div>';
+        if (r) h += '<div class="mark ' + (r.right ? 'right' : 'wrong') + '">' + (r.right ? (r.close ? 'Right (small typo). It\'s: <b>' + esc(r.want) + '</b>' : 'Right') : 'The answer: <b>' + esc(r.want) + '</b>') + '</div>';
+      }
+      h += '</div>';
+    });
+    if (res) h += '<div class="row" style="justify-content:center;margin:16px 0 8px"><button class="btn main big" id="tRetake">Take it again</button>' + (res.missed ? '<button class="btn big" id="tMissed">A test on the ' + (res.missed === 1 ? 'one' : res.missed) + ' I missed</button><button class="btn big quiet" id="tLearn">Learn the deck</button>' : '') + '<button class="btn big quiet" id="tBack">Back to the deck</button></div>';
+    $('tPaper').innerHTML = h;
+    $('tBar').hidden = !!res;
+    testCount();
+    if (res) {
+      $('tRetake').onclick = function () { startTest(Object.assign({}, TS.opts, { only: null })); };
+      var m = $('tMissed'); if (m) m.onclick = function () { startTest(Object.assign({}, TS.opts, { only: 'missed', count: 'all' })); };
+      var l = $('tLearn'); if (l) l.onclick = function () { setMode('learn'); startLearn(false); };
+      $('tBack').onclick = function () { stopStudy(); openDeck(S.deckId); };
+    }
+  }
+  function testCount() {
+    if (!TS) return;
+    var total = TS.test.length, done = TS.test.filter(function (q) { var a = TS.answers[q.n]; return q.type === 'match' ? a && Object.keys(a).filter(function (k) { return a[k]; }).length === q.items.length : a !== undefined && a !== ''; }).length;
+    $('tCount').textContent = done + ' of ' + total + ' answered';
+    $('prog').style.width = Math.round((done / Math.max(1, total)) * 100) + '%';
+  }
+  $('tPaper').addEventListener('click', function (e) {
+    if (!TS || TS.result) return;
+    var b = e.target.closest('.ch'); if (!b) return;
+    var n = +b.closest('.q').dataset.n, q = TS.test.find(function (x) { return x.n === n; });
+    TS.answers[n] = q.type === 'tf' ? b.dataset.v === 'true' : +b.dataset.v;
+    Array.prototype.forEach.call(b.parentNode.querySelectorAll('.ch'), function (x) { x.setAttribute('aria-pressed', String(x === b)); });
+    testCount();
+  });
+  $('tPaper').addEventListener('input', function (e) {
+    if (!TS || TS.result) return;
+    var t = e.target;
+    if (t.dataset.w) TS.answers[+t.dataset.w] = t.value;
+    testCount();
+  });
+  $('tPaper').addEventListener('change', function (e) {
+    if (!TS || TS.result) return;
+    var t = e.target;
+    if (t.dataset.match) { var n = +t.closest('.q').dataset.n; TS.answers[n] = TS.answers[n] || {}; TS.answers[n][t.dataset.match] = t.value; testCount(); }
+  });
+  $('tSubmit').addEventListener('click', function () {
+    if (!TS) return;
+    var left = TS.test.length - TS.test.filter(function (q) { return TS.answers[q.n] !== undefined && TS.answers[q.n] !== ''; }).length;
+    var go = left ? sheet({ title: 'Hand it in?', html: '<p>' + plural(left, 'question') + ' still blank. Blank ones count as wrong.</p>', actions: [{ label: 'Keep going', value: '' }, { label: 'Hand it in', value: 'ok', main: true }] }).then(function (r) { return r.v === 'ok'; }) : Promise.resolve(true);
+    go.then(function (yes) {
+      if (!yes) return;
+      return api('test-grade', { testId: TS.id, answers: TS.answers, ms: Date.now() - TS.t0 }).then(function (r) {
+        TS.result = r;
+        renderTest();
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+        refresh();
+      });
+    }).catch(fail);
+  });
+
   // ── the match game ──
   var MT = null;
   function startMatch() {
@@ -364,7 +615,7 @@
       MT = { tiles: r.tiles, best: r.best, sel: null, left: r.tiles.length / 2, t0: 0, timer: 0, n: r.tiles.length / 2 };
       $('stBack').textContent = '‹ ' + S.deck.title;
       show('vStudy');
-      $('stCard').hidden = true; $('stDone').hidden = true; $('stMatch').hidden = false;
+      studyPart('stMatch');
       $('prog').style.width = '0%'; $('stLeft').textContent = 'Match each card to its other side';
       $('best').textContent = r.best ? 'Best: ' + (r.best / 1000).toFixed(1) + ' s' : '';
       $('clock').textContent = '0.0';
@@ -534,7 +785,14 @@
   document.addEventListener('keydown', function (e) {
     if ($('sheet').open || e.metaKey || e.ctrlKey || e.altKey) return;
     var typing = /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName) && e.target.id !== 'checkBtn';
-    if (S.view !== 'vStudy' || !ST || !ST.cur || $('stCard').hidden) { if (e.key === 'Escape' && S.view === 'vStudy') $('stBack').click(); return; }
+    if (S.view === 'vStudy' && LS && !$('stLearn').hidden && !$('lAsk').hidden) {
+      var lq = LS.round[LS.i];
+      if (e.key === 'Escape') { $('stBack').click(); return; }
+      if (LS.answered && e.key === 'Enter' && !$('lFb').hidden && $('lFb').classList.contains('wrong')) { e.preventDefault(); learnNext(); return; }
+      if (!LS.answered && lq && lq.type === 'mc' && /^[1-4]$/.test(e.key)) { var ob = $('lOpts').children[+e.key - 1]; if (ob) ob.click(); }
+      return;
+    }
+    if (S.view !== 'vStudy' || !ST || !ST.cur || $('stCard').hidden) { if (e.key === 'Escape' && S.view === 'vStudy' && !TS) $('stBack').click(); return; }
     if (e.key === 'Escape') { $('stBack').click(); return; }
     if (ST.mode === 'type') {
       if (ST.answered && !typing) {

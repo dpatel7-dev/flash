@@ -39,6 +39,14 @@ function pigeonBin() {
   const r = spawnSync('sh', ['-c', 'command -v pigeon'], { encoding: 'utf8' });
   return r.status === 0 && r.stdout.trim() ? [r.stdout.trim(), []] : null;
 }
+const tests = new Map(); // practice tests being taken: their answers stay here
+function learnCounts(d) {
+  const L = d.learn || {};
+  const n = d.cards.length;
+  const learned = d.cards.filter((c) => (L[c.id] || 0) >= 3).length;
+  const learning = d.cards.filter((c) => (L[c.id] || 0) > 0 && (L[c.id] || 0) < 3).length;
+  return { total: n, learned, learning, fresh: n - learned - learning };
+}
 const need = (x, msg) => { if (!x) throw Object.assign(new Error(msg), { status: 400 }); return x; };
 const card = (d, id) => need(d.cards.find((c) => c.id === id), "That card isn't in the deck any more.");
 
@@ -54,7 +62,7 @@ async function api(what, b) {
     }
     case 'deck': {
       const d = Deck.load(b.id);
-      return { deck: summary(d, now), plan: Srs.plan(d, now, perDay()), cards: d.cards.map((c) => view(d, c)) };
+      return { deck: summary(d, now), plan: Srs.plan(d, now, perDay()), cards: d.cards.map((c) => view(d, c)), tests: (d.tests || []).slice(0, 10).map(({ missed, ...t }) => ({ ...t, missed: missed.length })), learn: learnCounts(d) };
     }
     case 'queue': {
       const d = Deck.load(b.id);
@@ -71,6 +79,43 @@ async function api(what, b) {
       const d = Deck.load(b.id);
       const c = card(d, b.card);
       return Quiz.check(b.typed, b.reverse ? c.front : c.back);
+    }
+    case 'test-make': {
+      const d = Deck.load(b.id);
+      let only = null;
+      if (b.only === 'missed') { const last = (d.tests || [])[0]; only = last ? last.missed : null; if (!only || !only.length) throw new Error('There were no mistakes last time: try a whole test.'); }
+      const qs = Quiz.makeTest(d, { count: b.count === 'all' ? d.cards.length : b.count, types: b.types, answerWith: b.answerWith, only });
+      const testId = require('crypto').randomBytes(8).toString('hex');
+      tests.set(testId, { deck: d.id, qs, at: now });
+      for (const [k, v] of tests) if (now - v.at > 6 * 3600000) tests.delete(k);
+      return { testId, test: Quiz.blank(qs) };
+    }
+    case 'test-grade': {
+      const t = need(tests.get(b.testId), 'That test has expired. Start a new one.');
+      const d = Deck.load(t.deck);
+      const r = Quiz.gradeTest(t.qs, b.answers || {});
+      const missed = [...new Set(r.results.flatMap((x) => (x.type === 'match' ? x.marks.filter((m) => !m.right).map((m) => m.card) : x.right ? [] : [x.card])))];
+      d.tests = [{ at: now, percent: r.percent, score: r.score, total: r.total, missed }, ...(d.tests || [])].slice(0, 30);
+      d.studied = now;
+      Deck.save(d);
+      Deck.log({ deck: d.id, card: null, g: 3, ms: Number(b.ms) || 0, mode: 'test', was: 'test', n: r.total });
+      return { ...r, missed: missed.length };
+    }
+    case 'learn': {
+      const d = Deck.load(b.id);
+      if (b.reset) { d.learn = {}; Deck.save(d); }
+      const round = Quiz.learnRound(d, d.learn || {}, { answerWith: b.answerWith, formats: b.formats, size: 7 });
+      return { round, counts: learnCounts(d) };
+    }
+    case 'learn-answer': {
+      const d = Deck.load(b.id);
+      card(d, b.card);
+      d.learn = d.learn || {};
+      d.learn[b.card] = Quiz.learnStep(d.learn[b.card] || 0, !!b.right, b.type);
+      d.studied = now;
+      Deck.save(d);
+      Deck.log({ deck: d.id, card: b.card, g: b.right ? 3 : 1, ms: Number(b.ms) || 0, mode: 'learn', was: 'learn' });
+      return { level: d.learn[b.card], counts: learnCounts(d) };
     }
     case 'match': {
       const d = Deck.load(b.id);

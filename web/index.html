@@ -37,7 +37,7 @@
       <div class="go">
         <button class="btn main big" id="goBtn">Study</button>
         <span class="seg" id="modeSeg" role="group" aria-label="How to study">
-          <button data-m="flip" aria-pressed="true">Flip</button><button data-m="quiz" aria-pressed="false">Choose</button><button data-m="type" aria-pressed="false">Type</button><button data-m="match" aria-pressed="false">Match</button>
+          <button data-m="flip" aria-pressed="true" title="Cards that come back just before you'd forget them">Flip</button><button data-m="learn" aria-pressed="false" title="Rounds until you know every card">Learn</button><button data-m="test" aria-pressed="false" title="A practice test, marked at the end">Test</button><button data-m="quiz" aria-pressed="false" title="Pick the answer out of four">Choose</button><button data-m="type" aria-pressed="false" title="Type the answer">Type</button><button data-m="match" aria-pressed="false" title="Match them against the clock">Match</button>
         </span>
         <label title="Show the back, answer with the front"><input type="checkbox" id="revChk"> Backwards</label>
       </div>
@@ -82,6 +82,21 @@
         <div class="mhead"><span class="clock" id="clock">0.0</span><span class="muted small" id="best"></span><span class="sp"></span><button class="btn" id="againMatch">New round</button></div>
         <div class="tiles" id="tiles"></div>
       </div>
+      <div id="stLearn" hidden>
+        <div class="lbar"><div class="mix" id="lMix" role="img"></div><span class="small muted" id="lTxt"></span><button class="link" id="lSet">Learn settings</button></div>
+        <div id="lAsk">
+          <div class="stage"><div class="lcard"><span class="tag" id="lTag"></span><div class="txt" id="lQ"></div><div class="hint" id="lHint"></div></div></div>
+          <div class="answer" id="lMC"><div class="opts" id="lOpts"></div></div>
+          <div class="answer" id="lW"><form class="typerow" id="lForm"><input type="text" id="lIn" autocomplete="off" spellcheck="false" placeholder="Type the answer" aria-label="Your answer"><button class="btn main" id="lGo">Check</button></form><p class="keys"><button class="link" id="lDunno">I don't know</button></p></div>
+          <div class="answer lfb" id="lFb" hidden></div>
+          <p class="keys" id="lKeys"></p>
+        </div>
+        <div class="finish" id="lDone" hidden></div>
+      </div>
+      <div id="stTest" hidden>
+        <div class="paper" id="tPaper"></div>
+        <div class="tsubmit" id="tBar"><span class="muted" id="tCount"></span><span class="sp"></span><button class="btn main big" id="tSubmit">Hand it in</button></div>
+      </div>
       <div class="finish" id="stDone" hidden></div>
     </div>
 
@@ -99,8 +114,11 @@
         <div class="row" style="margin-top:12px"><button class="btn main" id="nMake">Make the deck</button><span class="small muted" id="nCount"></span></div>
       </div>
       <div id="tFile" hidden>
-        <label class="drop" id="drop"><input type="file" id="file" accept=".txt,.tsv,.csv,.flash,.md,.pdf,.docx,.doc,.rtf" hidden>
-          <b>Drop a file here</b>, or click to pick one.<br><span class="small">A Quizlet or Anki export, a .csv, a .flash file from a friend, or any text with one card a line. A PDF or Word document of notes goes to AI to make cards from.</span></label>
+        <label class="drop" id="drop" tabindex="0"><input type="file" id="file" accept=".txt,.tsv,.csv,.flash,.md,.pdf,.docx,.doc,.rtf" hidden>
+          <span class="dropicon" aria-hidden="true"></span>
+          <b>Drop a file here, or click to pick one</b>
+          <span class="dropwhat"><span><b>Cards</b>: a Quizlet or Anki export, a .csv, a .flash file from a friend, or any text with one card a line</span><span><b>Notes</b>: a PDF or Word document, for AI to make cards from</span></span></label>
+        <p class="small muted" id="fileNote" hidden></p>
         <p class="small muted" id="totRow" hidden style="margin-top:14px">You have decks in Tree of Thought's cram. <button class="link" id="totBtn" style="color:var(--lake)">Bring them in</button> (with how well you knew each card).</p>
       </div>
       <div id="tAi" hidden>

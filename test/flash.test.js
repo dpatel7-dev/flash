@@ -206,3 +206,35 @@ test('the command line', () => {
   const bad = run(['study', 'nothing-like-this']);
   assert.match(bad.stderr, /no deck called/);
 });
+
+test('practice tests: every kind of question, marked fairly, answers kept back', () => {
+  const d = { cards: Array.from({ length: 12 }, (_, i) => ({ id: 'c' + i, front: 'term ' + i, back: 'the meaning of number ' + i })) };
+  const t = Quiz.makeTest(d, { count: 12, types: ['mc', 'tf', 'written', 'match'] });
+  const kinds = new Set(t.map((q) => q.type));
+  for (const k of ['mc', 'tf', 'written', 'match']) assert.ok(kinds.has(k), k);
+  assert.ok(Quiz.blank(t).every((q) => q.key === undefined), 'no answers sent to the window');
+  const right = {};
+  for (const q of t) right[q.n] = q.type === 'written' ? q.key.toUpperCase() : q.key;
+  assert.equal(Quiz.gradeTest(t, right).percent, 100);
+  const none = Quiz.gradeTest(t, {});
+  assert.equal(none.score, 0);
+  assert.equal(none.total, 12);
+  const m = t.find((q) => q.type === 'match');
+  const half = { [m.n]: { [m.items[0].card]: m.key[m.items[0].card] } };
+  assert.equal(Quiz.gradeTest(t, half).score, 1);
+});
+
+test('Learn mode: pick one of four first, then type it; a miss steps back', () => {
+  const d = { cards: Array.from({ length: 6 }, (_, i) => ({ id: 'c' + i, front: 'f' + i, back: 'b' + i })) };
+  const r1 = Quiz.learnRound(d, {}, { size: 4 });
+  assert.equal(r1.length, 4);
+  assert.ok(r1.every((q) => q.type === 'mc' && q.options.length === 4));
+  const r2 = Quiz.learnRound(d, { c0: 1, c1: 2, c2: 3, c3: 3, c4: 3, c5: 3 }, { size: 7 });
+  assert.deepEqual(r2.map((q) => q.card).sort(), ['c0', 'c1']);
+  assert.ok(r2.every((q) => q.type === 'written'));
+  assert.equal(Quiz.learnStep(0, true, 'mc'), 1);
+  assert.equal(Quiz.learnStep(1, true, 'written'), 2);
+  assert.equal(Quiz.learnStep(2, true, 'written'), 3);
+  assert.equal(Quiz.learnStep(2, false, 'written'), 1);
+  assert.deepEqual(Quiz.learnRound(d, { c0: 3, c1: 3, c2: 3, c3: 3, c4: 3, c5: 3 }), []);
+});

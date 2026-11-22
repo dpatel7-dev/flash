@@ -34,6 +34,7 @@ const HELP = `
   flash study [deck]             study (Space flips, then 1 again · 2 hard · 3 good · 4 easy)
   flash quiz [deck]              pick the answer out of four
   flash type [deck]              type the answer (small typos are forgiven)
+  flash test [deck]              a practice test, marked at the end (more kinds in the window, and Learn mode)
   flash app                      the window: study, the match game, edit decks, stats
 
   flash new "Biology"            a new deck: type or paste cards (term - definition, one a line)
@@ -290,11 +291,20 @@ async function main(argv) {
       intro(['', `${glow('flash')} ${dim('v' + pkg.version)}`, '', 'Study cards that come back', 'just before you\'d forget them.', '', st.streak ? `${glow('✦')} ${st.streak} day${st.streak === 1 ? '' : 's'} in a row${st.today ? dim(`, ${st.today} cards today`) : ''}` : dim(`${Blink.NAME} is ready when you are.`)]);
       if (!decks.length) {
         out('  No decks yet. Make one:\n');
-        out(`    ${lake('flash new "Spanish"')}          type or paste cards`);
-        out(`    ${lake('flash import words.txt')}       from a file (a Quizlet export works)`);
-        out(`    ${lake('flash make biology.pdf')}       made by AI from your notes`);
-        if (fs.existsSync(path.join(process.env.TOT_HOME || path.join(os.homedir(), '.tot'), 'cram'))) out(`    ${lake('flash tot')}                    your decks from Tree of Thought's cram`);
+        out(`    ${lake('n')}  type or paste cards          ${dim('(flash new "Spanish")')}`);
+        out(`    ${lake('i')}  bring in a file              ${dim('(flash import words.txt: a Quizlet export works)')}`);
+        out(`    ${lake('m')}  let AI make them from notes  ${dim('(flash make biology.pdf)')}`);
+        out(`    ${lake('w')}  open flash's window          ${dim('(flash app)')}`);
+        const tot = fs.existsSync(path.join(process.env.TOT_HOME || path.join(os.homedir(), '.tot'), 'cram'));
+        if (tot) out(`    ${lake('t')}  your decks from Tree of Thought's cram`);
         out('');
+        if (!process.stdin.isTTY) return;
+        const a = (await ask(dim('  Type a letter and press Enter (or just Enter to leave): '))).trim().toLowerCase();
+        if (a === 'n') { const t = (await ask('  What should the deck be called? ')).trim(); if (t) return main(['new', t]); return; }
+        if (a === 'i') { const f = (await ask(`  Drag the file into this window (or type its path), then Enter: `)).trim().replace(/^['"]|['"]$/g, '').replace(/\\ /g, ' '); if (f) return main(['import', f]); return; }
+        if (a === 'm') { const f = (await ask('  A file of notes (drag it in) or a topic: ')).trim().replace(/^['"]|['"]$/g, '').replace(/\\ /g, ' '); if (f) return main(['make', f]); return; }
+        if (a === 'w') return main(['app']);
+        if (a === 't' && tot) return main(['tot']);
         return;
       }
       decks.forEach((d, i) => out(line(d, i)));
@@ -313,6 +323,49 @@ async function main(argv) {
       const d = o.rest.length ? pickDeck(o.rest.join(' ')) : mostUrgent(Deck.all()) || pickDeck(null);
       const mode = { quiz: 'quiz', choose: 'quiz', type: 'type', write: 'type' }[cmd] || 'flip';
       return session(Deck.load(d.id), { mode, all: o.all || o.a, reverse: o.reverse || o.r });
+    }
+    case 'test': case 'exam-practice': case 'practice': {
+      const d = Deck.load((rest.length ? pickDeck(rest.join(' ')) : mostUrgent(Deck.all()) || pickDeck(null)).id);
+      if (!process.stdin.isTTY) throw new Error('A practice test needs a terminal you can type in. Or take one in the window: flash app');
+      const test = Quiz.makeTest(d, { count: 15, types: ['mc', 'tf', 'written'] });
+      const answers = {};
+      const t0 = Date.now();
+      clear();
+      out(`\n  ${glow('flash')}  ${bold('a practice test: ' + d.title)}   ${dim(test.length + ' questions, marked at the end (q stops)')}\n`);
+      let stopped = false;
+      for (const q of test) {
+        out(`  ${bold(q.n + '.')} ${wrap(q.prompt, cols() - 10).join('\n     ')}`);
+        if (q.type === 'mc') {
+          q.options.forEach((o, i) => out(`     ${lake(String(i + 1))}  ${wrap(o, cols() - 14).join('\n        ')}`));
+          let k; do { k = await key(); } while (!['1', '2', '3', '4', 'q'].includes(k) || (/\d/.test(k) && Number(k) > q.options.length));
+          if (k === 'q') { stopped = true; break; }
+          answers[q.n] = Number(k) - 1; out(dim(`     → ${k}`));
+        } else if (q.type === 'tf') {
+          out(`     ${dim('Is this right?')} ${q.shown}`);
+          out(dim('     t: true · f: false'));
+          let k; do { k = await key(); } while (!['t', 'f', 'q'].includes(k));
+          if (k === 'q') { stopped = true; break; }
+          answers[q.n] = k === 't'; out(dim(`     → ${k === 't' ? 'true' : 'false'}`));
+        } else {
+          const a = await ask(`     ${lake('›')} `);
+          if (a.trim().toLowerCase() === 'q') { stopped = true; break; }
+          answers[q.n] = a;
+        }
+        out('');
+      }
+      if (stopped) { out('  Stopped. Nothing was marked.\n'); return; }
+      const r = Quiz.gradeTest(test, answers);
+      const missed = r.results.filter((x) => !x.right).map((x) => x.card);
+      d.tests = [{ at: Date.now(), percent: r.percent, score: r.score, total: r.total, missed }, ...(d.tests || [])].slice(0, 30);
+      Deck.save(d);
+      Deck.log({ deck: d.id, card: null, g: 3, ms: Date.now() - t0, mode: 'test', was: 'test', n: r.total });
+      out(`  ${glow(r.percent + '%')}  ${r.score} out of ${r.total}\n`);
+      for (const x of r.results.filter((y) => !y.right)) {
+        const q = test.find((y) => y.n === x.n);
+        out(`  ${red('✗')} ${q.n}. ${q.prompt.slice(0, 60)}  ${dim('→')} ${bold(String(x.want).slice(0, 80))}`);
+      }
+      out(r.score === r.total ? ok('\n  Every one right.\n') : dim(`\n  Learn the ones you missed in the window (flash app › Learn), or take another: flash test ${d.id}\n`));
+      return;
     }
     case 'new': case 'create': {
       const title = rest.join(' ').trim();

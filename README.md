@@ -33,6 +33,8 @@ curl -fsSL https://djp7.pythonanywhere.com/flash/install.sh | sh
 | Let AI make the cards | `flash make biology.pdf` (or .docx, .txt, or a topic: `flash make "the water cycle"`) |
 | Set a test date | `flash exam biology friday` (or `dec 12`, `12/12`, `in 5 days`) |
 | Study | `flash study` (flip: Space, then 1 again, 2 hard, 3 good, 4 easy), `flash quiz` (pick one of four), `flash type` (type it) |
+| Learn a deck from scratch | the window › **Learn**: rounds until you know every card |
+| Practice test | the window › **Test**, or `flash test biology` in the terminal |
 | Share a deck | `flash share biology` makes a link (with [pigeon](https://github.com/dpatel7-dev/pigeon)). A friend: `flash get <link>` |
 | A daily reminder | `flash remind 4pm`: a notification, only on days there's something to study |
 | Your streak | `flash stats` |
@@ -53,13 +55,15 @@ With a test date, flash:
 - spreads out the new cards so you've seen them all in time (more a day if it has to),
 - brings back every card once on the day before.
 
-### Four ways to study
+### Ways to study
 
 - **Flip**: read it, think of the answer, flip, say how it went.
 - **Choose**: pick the answer out of four. The wrong ones look like the right one (years with years).
 - **Type**: type the answer. Small typos, accents, "the" in front and alternatives (`colour / color`)
   are forgiven, and for long answers getting most of the key words counts.
 - **Match** (in the window): match each card to its other side against the clock. A wrong pair costs a second.
+- **Learn** (in the window): rounds of seven cards until you know them all. A card starts as pick-one-of-four, then you type it from memory; miss it and it steps back and comes up again later in the round.
+- **Test**: a practice test on one page, like a real one: multiple choice, true or false, written and matching. Hand it in for your mark and the right answers, then take a test on just the ones you missed.
 
 **Backwards** asks the back and wants the front.
 
