@@ -1,6 +1,7 @@
 # Changelog
 
 ## 1.1.0
+- The moving scene behind the window can no longer stumble on its very first frame.
 - **Learn mode**: rounds of seven cards until you know every one. Each card starts as pick-one-of-four, then you type it from memory; a miss sends it back a step and it comes up again later in the round. Your progress is kept between sessions.
 - **Practice tests**: a whole test on one page, like a real one, with multiple choice, true or false, written answers and a matching section. Hand it in to see your mark and the right answer to everything you missed, then retake it, take a test on just the ones you missed, or learn them. Your last scores show on the deck. Also in the terminal: `flash test`.
 - Fixed: the "From a file" box was drawn broken. It's a proper drop area now.
